@@ -3,6 +3,9 @@ import shutil
 import os
 
 app = FastAPI()
+@app.api_route("/", methods=["GET", "POST", "HEAD", "OPTIONS"])
+async def root_test():
+    return {"message": "Server is alive", "status": "ok"}
 
 @app.post("/upload/")
 async def upload_file(
