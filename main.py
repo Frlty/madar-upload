@@ -1,28 +1,55 @@
-from fastapi import FastAPI, File, UploadFile, Form
-import shutil
-import os
+from fastapi import FastAPI, UploadFile, File, Depends
+from fastapi.responses import JSONResponse
+from sqlalchemy import create_engine, Column, Integer, String
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import sessionmaker, Session
 
 app = FastAPI()
-@app.api_route("/", methods=["GET", "POST", "HEAD", "OPTIONS"])
-async def root_test():
-    return {"message": "Server is alive", "status": "ok"}
 
-@app.post("/upload/")
-async def upload_file(
-    image: UploadFile = File(...),
-    latitude: float = Form(...),
-    longitude: float = Form(...),
-    timestamp: str = Form(None)
-):
-    os.makedirs("uploads", exist_ok=True)
-    filepath = f"uploads/{image.filename}"
-    with open(filepath, "wb") as f:
-        shutil.copyfileobj(image.file, f)
+# Database setup
+SQLALCHEMY_DATABASE_URL = "sqlite:///./users.db"
+engine = create_engine(SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False})
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+Base = declarative_base()
 
-    return {
-        "status": "success",
-        "filename": image.filename,
-        "latitude": latitude,
-        "longitude": longitude,
-        "timestamp": timestamp
-    }
+class User(Base):
+    __tablename__ = "users"
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, index=True)
+
+Base.metadata.create_all(bind=engine)
+
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+@app.get("/users")
+def get_users(db: Session = Depends(get_db)):
+    users = db.query(User).all()
+    return users
+
+@app.get("/server-info")
+def get_server_info():
+    return {"version": "1.0.0", "status": "running"}
+
+@app.post("/upload")
+def upload_file(file: UploadFile = File(...)):
+    content = file.file.read()
+    return JSONResponse(content={"filename": file.filename, "size": len(content)}, status_code=200)
+
+@app.get("/")
+def root():
+    return {"message": "Immich-compatible backend running."}
+
+# Seed a default user if not exists
+def seed_user():
+    db = SessionLocal()
+    if db.query(User).count() == 0:
+        db.add(User(name="Default User"))
+        db.commit()
+    db.close()
+
+seed_user()
